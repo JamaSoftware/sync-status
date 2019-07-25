@@ -1,4 +1,4 @@
 .idea/
 __pycache__/
 sync_status.csv
-
+.DS_Store
