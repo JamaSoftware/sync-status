@@ -1,19 +1,52 @@
 import sys
 import os
 import csv
+import logging
+import datetime
+import progressbar
+from time import sleep
+from halo import Halo
 from py_jama_rest_client.client import JamaClient
 
 import config
 
+# Wrap streams for progressbar
+progressbar.streams.wrap_stderr()
+
+# Setup logging
+try:
+    os.makedirs('logs')
+except FileExistsError:
+    pass
+
+current_date_time = datetime.datetime.now().strftime(config.log_date_time_format)
+log_file = 'logs/sync_status_' + str(current_date_time) + '.log'
+
+logging.basicConfig(filename=log_file, level=logging.INFO)
+log = logging.getLogger()
+
+sync_logger = logging.getLogger('sync_status')
+sync_logger.setLevel(logging.DEBUG)
+sync_logger.addHandler(logging.StreamHandler(sys.stdout))
+
+# Setup Jama Client
 j_client = JamaClient(config.JAMA_CONNECT_URL, (config.USERNAME,config.PASSWORD))
 
-# The header names for the CSV output.
+# The header names for the CSV output.  if you change these you must update the row append dictionary below to match
 field_names = ['ID', 'Global ID', 'Name', 'Synced Item', 'Synced Project', 'inSync?']
 
 
 def check_sync(filter_id, project_id, output_location):
     # get all the items for this filter.
+    sync_logger.info('Fetching items in filter {}, project: {}'.format(filter_id, project_id))
+
+    spinner = Halo(text='Fetching filter data.', spinner='dots')
+    spinner.start()
     filter_results = j_client.get_filter_results(filter_id, project_id)
+    spinner.stop()
+
+    # Give the output buffer a chance to clear
+    sleep(0.2)
 
     total_results = len(filter_results)
     items_without_sync = 0
@@ -31,13 +64,12 @@ def check_sync(filter_id, project_id, output_location):
 
     # Main Logic Here
     # For each item we want to find all item's it is synced with.
-    for item in filter_results:
+    for item in progressbar.progressbar(filter_results):
         item_id = item['id']
         synced_items = j_client.get_items_synceditems(item_id)
 
         if len(synced_items) == 0:
             items_without_sync += 1
-            print('item: {} has no synced items.'.format(item_id))
 
         # For each item this item is synced with, check if the two are in sync
         for sync_item in synced_items:
@@ -67,11 +99,13 @@ def check_sync(filter_id, project_id, output_location):
         for row in rows:
             writer.writerow(row)
 
-    print('\n*** Process Complete ***')
-    print('There were {} items in the filter.'.format(total_results))
-    print('{} of the items had no synced items associated with them.'.format(items_without_sync))
-    print('{} pairs of items are in sync.'.format(items_in_sync))
-    print('{} pairs of items are not in sync'.format(items_out_of_sync))
+    # Sleep to allow progressbar output buffer to catch up / flush
+    sleep(0.2)
+    sync_logger.info('*** Process Complete ***')
+    sync_logger.info('There were {} items in the filter.'.format(total_results))
+    sync_logger.info('{} of the items had no synced items associated with them.'.format(items_without_sync))
+    sync_logger.info('{} pairs of items are in sync.'.format(items_in_sync))
+    sync_logger.info('{} pairs of items are not in sync'.format(items_out_of_sync))
 
 
 if __name__ == "__main__":
