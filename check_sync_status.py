@@ -73,6 +73,9 @@ def check_sync(filter_id, project_id, output_location):
 
         # For each item this item is synced with, check if the two are in sync
         for sync_item in synced_items:
+            # Only check items that are in a project that is specified to check against.
+            if len(config.project_list) > 0 and sync_item['project'] not in config.project_list:
+                continue
             sync_item_id = sync_item['id']
             in_sync = j_client.get_items_synceditems_status(item_id, sync_item_id)
 
